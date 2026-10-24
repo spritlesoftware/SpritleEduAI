@@ -82,10 +82,8 @@ class Lesson(BaseModel):
     clip_prompt: str
 
 
-class Practice(BaseModel):
+class Practice(Lesson):  # a full lesson (slides, takeaways, flashcards, quiz) focused on what the student missed
     title: str
-    explanation: str
-    quiz: list[Question]
 
 
 CONTENT_V = 3  # bump to regenerate cached lessons with a richer format
@@ -173,20 +171,29 @@ def generate_practice(course, k, missed_concepts, lang="en"):
     return _json(
         f"Course: {course['title']}. The student struggled with: {', '.join(missed_concepts)} (lesson '{les['title']}').\n"
         f"Outline:\n{outline(course)}\nLanguage: {LANG[lang]}.\n"
-        "Write a short targeted remedial lesson: title, a clear explanation with a worked example, and 3 new multiple-choice questions "
-        "(different from a standard quiz) with concept and review keys from the outline.",
-        Practice, "You are a patient tutor.")
+        "Write a FULL, in-depth remedial lesson (as thorough as a regular lesson, ~25 minutes) that re-teaches these weak concepts from first principles "
+        "for a student who got them wrong. Give: a `title`; an `explanation` in markdown with sections (why it matters, the core idea explained step by step, "
+        "2-3 worked examples walked through line by line, common mistakes and how to avoid them, a quick self-check); 3-5 key_takeaways; a runnable "
+        "code_example if programming (else null); 6-8 detailed slides, each with 4-6 bullets written as full explanatory sentences, a `detail` of 3-5 sentences "
+        "with an example or analogy, optional code, and a 5-7 sentence spoken narration; 5 NEW multiple-choice questions (4 options, answer_index 0-3, different "
+        "from the original quiz) each with `concept`, `review` = an outline key, and an explanation; 4 flashcards; and a one-sentence clip_prompt.",
+        Practice, "You are a patient, thorough tutor.")
 
 
 def lesson_for(course, k, lang="en", context=""):
     """Cached lesson content; generated on first open. Mutates course['content']; caller saves."""
     c = course.setdefault("content", {}).setdefault(k, {})
+    if lang in c and dict(plan.lessons(course))[k].get("remedial") and "slides" not in c[lang]:  # older, slimmer practice lesson
+        del c[lang]; dict(plan.lessons(course))[k].pop("practice", None)
     if lang in c and not dict(plan.lessons(course))[k].get("remedial") and c[lang].get("v") != CONTENT_V:
         log.info("lesson %s cached with old format (v=%s), regenerating", k, c[lang].get("v"))
         del c[lang]
     if lang not in c:
         les = dict(plan.lessons(course))[k]
         if les.get("remedial"):
+            if "practice" not in les:  # background generation hasn't finished/was lost
+                les["practice"] = generate_practice(course, les["after"], les.get("missed", []), lang)
+                les["title"] = les["practice"]["title"]
             c[lang] = les["practice"]
         else:
             c[lang] = generate_lesson(course, k, lang, context)

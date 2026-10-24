@@ -1,6 +1,6 @@
 """SpritleEduAI REST API. Frontend-agnostic; interactive docs at /docs."""
-import asyncio, os, time, uuid
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+import asyncio, os, threading, time, uuid
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -57,6 +57,25 @@ def _course(cid):
     if not c:
         raise HTTPException(404, "course not found")
     return c
+
+
+_pending: dict[tuple, threading.Event] = {}  # (course, remedial key) -> set when its practice lesson is written
+
+
+def _make_practice(cid, k, rk, missed, lang):
+    ev = _pending.setdefault((cid, rk), threading.Event())
+    try:
+        c = db.get_course(cid)  # fresh copy: the quiz request has long since returned
+        p = ai.generate_practice(c, k, missed, lang)
+        les = dict(plan.lessons(c))[rk]
+        p["v"] = ai.CONTENT_V
+        les["practice"], les["title"] = p, p["title"]
+        db.save_course(c, cid)
+        log.info("practice lesson %s ready: %r", rk, p["title"])
+    except Exception:
+        log.exception("practice generation failed for %s (will retry when the lesson is opened)", rk)
+    finally:
+        ev.set(); _pending.pop((cid, rk), None)
 
 
 def _lesson(c, k, lang, ctx=""):
@@ -127,6 +146,8 @@ def schedule(cid: int):
 @app.get("/courses/{cid}/lessons/{k}")
 def lesson(cid: int, k: str, lang: Lang = "en"):
     c = _course(cid)
+    if (ev := _pending.get((cid, k))):
+        ev.wait(90); c = _course(cid)  # practice lesson still being written
     if k not in dict(plan.lessons(c)):
         raise HTTPException(404, "lesson not found")
     ctx, sources = "", []
@@ -142,7 +163,7 @@ def lesson(cid: int, k: str, lang: Lang = "en"):
 
 
 @app.post("/courses/{cid}/lessons/{k}/quiz")
-def submit_quiz(cid: int, k: str, b: QuizIn):
+def submit_quiz(cid: int, k: str, b: QuizIn, bg: BackgroundTasks):
     c = _course(cid)
     quiz = _lesson(c, k, b.lang)["quiz"]
     if len(b.answers) != len(quiz):
@@ -157,12 +178,13 @@ def submit_quiz(cid: int, k: str, b: QuizIn):
     if out["passed"]:
         db.mark_done(cid, k)
     else:
-        p = ai.generate_practice(c, k, missed, b.lang)
-        rk = plan.add_remedial(c, k, p["title"])
-        dict(plan.lessons(c))[rk]["practice"] = p
+        title = "Practice: " + ", ".join(missed[:2])[:80]
+        rk = plan.add_remedial(c, k, title, missed=missed)
         db.save_course(c, cid)
-        log.info("remedial lesson %s added after %s: %r", rk, k, p["title"])
-        out["remedial"] = {"key": rk, "title": p["title"]}
+        _pending[(cid, rk)] = threading.Event()  # registered now so an immediate click waits instead of regenerating
+        bg.add_task(_make_practice, cid, k, rk, missed, b.lang)  # grading returns now; Gemini writes the practice lesson after
+        log.info("remedial lesson %s queued after %s", rk, k)
+        out["remedial"] = {"key": rk, "title": title}
     return out
 
 

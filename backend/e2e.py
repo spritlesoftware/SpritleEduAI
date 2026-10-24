@@ -53,6 +53,11 @@ assert rk in plan_keys, "remedial not scheduled"
 print("remedial:", r["remedial"]["title"])
 rem = ok(c.get(f"/courses/{cid}/lessons/{rk}"))
 assert rem["quiz"] and "answer_index" not in rem["quiz"][0]
+rq = db.get_course(cid)["content"][rk]["en"]["quiz"]
+r2 = ok(c.post(f"/courses/{cid}/lessons/{rk}/quiz", json={"answers": [(q["answer_index"] + 1) % len(q["options"]) for q in rq]}))
+assert not r2["passed"] and r2["remedial"], "failing a remedial quiz must queue another practice lesson, not crash"
+ok(c.get(f"/courses/{cid}/lessons/{r2['remedial']['key']}"))
+print("nested remedial ok:", r2["remedial"]["key"])
 
 step("6. correct answers -> pass, lesson done")
 r = ok(c.post(f"/courses/{cid}/lessons/{k}/quiz", json={"answers": [q["answer_index"] for q in full]}))
@@ -61,7 +66,7 @@ assert k in ok(c.get(f"/courses/{cid}"))["done"]
 
 step("7. review: flashcards + mastery")
 rv = ok(c.get(f"/courses/{cid}/review"))
-assert rv["flashcards"] and rv["mastery"] and len(rv["attempts"]) == 2
+assert rv["flashcards"] and rv["mastery"] and len(rv["attempts"]) == 3
 print(len(rv["flashcards"]), "cards, weak:", rv["weak_concepts"])
 
 step("8. voice tutor (text turn via ADK + tools) and TTS")

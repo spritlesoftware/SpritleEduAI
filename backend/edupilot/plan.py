@@ -10,11 +10,16 @@ def lessons(course):
     """Ordered list of (key, lesson) incl. remedial lessons inserted after the lesson that triggered them."""
     out = []
     rem = course.get("remedial", [])
+
+    def add(k, les):  # remedial lessons can themselves trigger more remedial lessons
+        out.append((k, les))
+        for r in rem:
+            if r["after"] == k:
+                add(r["key"], r)
+
     for m, mod in enumerate(course["modules"]):
         for l, les in enumerate(mod["lessons"]):
-            k = key(m, l)
-            out.append((k, les))
-            out += [(r["key"], r) for r in rem if r["after"] == k]
+            add(key(m, l), les)
     return out
 
 
@@ -49,11 +54,11 @@ def recommend(course, key_taken, question_results):
     return score, revisit or [key_taken]
 
 
-def add_remedial(course, after_key, title, minutes=15):
+def add_remedial(course, after_key, title, minutes=15, missed=None):
     rem = course.setdefault("remedial", [])
     k = f"r{len(rem)}"
     rem.append({"key": k, "after": after_key, "title": title, "estimated_minutes": minutes,
-                "content_type": "practice", "remedial": True})
+                "content_type": "practice", "remedial": True, "missed": missed or []})
     return k
 
 
@@ -65,5 +70,7 @@ if __name__ == "__main__":
     assert s == 0.5 and rv == ["m0l0"]
     assert recommend(c, "m0l2", [{"concept": "x", "correct": True}])[1] == []
     k = add_remedial(c, "m0l2", "Review x")
-    assert lessons(c)[-1][0] == k and schedule(c, set())[-1]["items"][-1][1] == "Review x"
+    k2 = add_remedial(c, k, "Review x again")  # failing a remedial quiz must not break the plan
+    assert [x for x, _ in lessons(c)][-2:] == [k, k2]
+    assert lessons(c)[-2][0] == k and schedule(c, set())[-1]["items"][-1][1] == "Review x again"
     print("ok")
