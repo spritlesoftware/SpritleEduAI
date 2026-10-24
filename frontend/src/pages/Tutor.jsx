@@ -1,23 +1,37 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import { ErrorBox, Icon, Spinner, lessonIndex, useAsync, useLang } from "../ui.jsx";
 
+const SUGGEST = ["Explain this lesson simply", "Give me a real-world example", "Quiz me with one question", "What mistakes should I avoid?"];
+
 export function TutorPanel({ id, k, lang }) {
+  const endRef = useRef(null);
   const [msgs, setMsgs] = useState([]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [rec, setRec] = useState(null);
   const [err, setErr] = useState(null);
+  const [muted, setMuted] = useState(() => localStorage.getItem("tutorMuted") === "1");
 
-  async function ask(t, audio, label) {
-    setMsgs((m) => [...m, { me: true, t: label ?? t }]); setBusy(true); setErr(null);
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [msgs, busy]);
+  useEffect(() => {
+    api.chat(id, k).then((h) => setMsgs(h.map((m) => ({ me: m.role === "user", t: m.text })))).catch(() => {});
+  }, [id, k]);
+
+  async function ask(t, audio) {
+    const n = Date.now();
+    setMsgs((m) => [...m, { me: true, t: audio ? "🎤 Transcribing…" : t, n }]); setBusy(true); setErr(null);
     try {
-      const { reply } = await api.tutor(id, k, lang, t, audio);
-      setMsgs((m) => [...m, { t: reply }]);
-    } catch (e) { setErr(e.message); }
+      const { reply, transcript } = await api.tutor(id, k, lang, t, audio);
+      setMsgs((m) => [...m.map((x) => (x.n === n && transcript ? { ...x, t: transcript } : x)), { t: reply }]);
+      if (audio && !muted) speak(reply);  // spoken question -> spoken answer; typed question stays silent
+    } catch (e) {
+      setMsgs((m) => m.filter((x) => x.n !== n)); setErr(e.message);
+    }
     setBusy(false);
   }
+  const toggleMute = () => setMuted((v) => { localStorage.setItem("tutorMuted", v ? "0" : "1"); return !v; });
   const send = () => { const t = text.trim(); if (t) { setText(""); ask(t); } };
   const speak = async (t) => new Audio(await api.tts(t, lang)).play().catch((e) => setErr(e.message));
 
@@ -27,27 +41,42 @@ export function TutorPanel({ id, k, lang }) {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream), chunks = [];
       mr.ondataavailable = (e) => chunks.push(e.data);
-      mr.onstop = () => { stream.getTracks().forEach((t) => t.stop()); setRec(null); ask(null, new File(chunks, "q.webm", { type: mr.mimeType }), "🎤 (voice question)"); };
+      mr.onstop = () => { stream.getTracks().forEach((t) => t.stop()); setRec(null); ask(null, new File(chunks, "q.webm", { type: mr.mimeType })); };
       mr.start(); setRec(mr);
     } catch (e) { setErr("Microphone unavailable: " + e.message); }
   }
 
   return (
-    <section className="card p-4 flex flex-col h-[32rem]">
+    <section className="card p-4 flex flex-col h-[calc(100vh-7.5rem)] min-h-[32rem]">
       <div className="flex items-center gap-2 font-bold"><span className={`h-2 w-2 rounded-full ${rec ? "bg-error animate-pulse" : "bg-tertiary-container"}`} />AI Voice Tutor
-        <span className="ml-auto eyebrow">{rec ? "Listening…" : "Online"}</span></div>
+        <span className="ml-auto eyebrow">{rec ? "Listening…" : "Online"}</span>
+        <button className="text-primary" onClick={toggleMute} title={muted ? "Unmute voice replies" : "Mute voice replies"}><Icon n={muted ? "volume_off" : "volume_up"} className="!text-xl" /></button></div>
       <div className="flex-1 overflow-y-auto py-3 space-y-3 text-sm">
-        {!msgs.length && <p className="text-muted">Ask anything about this lesson — type or use the mic.</p>}
+        {!msgs.length && (
+          <div className="h-full flex flex-col items-center justify-center text-center gap-3 px-2">
+            <Icon n="graphic_eq" className="!text-5xl text-primary-container" />
+            <p className="font-semibold">Ask me anything about this lesson</p>
+            <p className="text-muted">Type, tap the mic to speak, or try one of these:</p>
+            <div className="flex flex-col gap-2 w-full max-w-xs mt-1">
+              {SUGGEST.map((q) => <button key={q} className="chip !justify-start !py-2.5 text-left" disabled={busy} onClick={() => ask(q)}>{q}</button>)}
+            </div>
+          </div>
+        )}
         {msgs.map((m, i) => (
           <div key={i} className={m.me ? "flex justify-end" : ""}>
             <div className={`max-w-[85%] rounded-xl px-3 py-2 ${m.me ? "bg-primary-container text-white" : "bg-surface-container-low"}`}>
               {m.t}
-              {!m.me && <button className="ml-2 text-primary" onClick={() => speak(m.t)} title="Read aloud"><Icon n="volume_up" className="!text-base" /></button>}
             </div>
           </div>
         ))}
         {busy && <Spinner label="Thinking…" />}
+        <div ref={endRef} />
       </div>
+      {msgs.length > 0 && (
+        <div className="flex gap-1.5 pt-2 overflow-x-auto pb-1">
+          {SUGGEST.map((q) => <button key={q} className="chip whitespace-nowrap" disabled={busy} onClick={() => ask(q)}>{q}</button>)}
+        </div>
+      )}
       <ErrorBox error={err} />
       <div className="flex gap-2 mt-2">
         <button className={`btn ${rec ? "!bg-error" : "btn-ghost"}`} onClick={toggleMic} title="Record a question"><Icon n={rec ? "stop" : "mic"} /></button>

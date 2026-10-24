@@ -67,7 +67,36 @@ print(len(rv["flashcards"]), "cards, weak:", rv["weak_concepts"])
 step("8. voice tutor (text turn via ADK + tools) and TTS")
 t = ok(c.post("/tutor", data={"course_id": cid, "key": k, "text": "Explain this lesson in two sentences."}))
 assert t["reply"].strip(); print(t["reply"][:300])
+h = ok(c.get(f"/courses/{cid}/chat"))
+assert [m["role"] for m in h] == ["user", "assistant"], h
 a = c.post("/tts", data={"text": t["reply"][:200]})
 assert a.status_code == 200 and len(a.content) > 1000
+
+mp3 = c.post("/tts", data={"text": "What is a variable in Python?"}).content
+t2 = ok(c.post("/tutor", data={"course_id": cid, "key": k}, files={"audio": ("q.mp3", mp3, "audio/mpeg")}))
+assert "variable" in t2["transcript"].lower() and t2["reply"], t2
+h = ok(c.get(f"/courses/{cid}/chat?key={k}"))
+assert len(h) == 4 and h[2]["via"] == "voice" and h[2]["text"] == t2["transcript"]
+print("voice transcript:", t2["transcript"])
+step("9. learn from my notes (RAG): validation, upload, course + lesson grounded in the PDF")
+assert c.post("/courses", json={"source": "notes"}).status_code == 422
+assert c.post("/courses", json={"source": "notes", "notes_tag": "nope"}).status_code == 422
+import pymupdf as fitz
+doc = fitz.open()
+for t in ["Glimmerroot farming handbook. The Glimmerroot is harvested only at dusk using a copper trowel. "
+          "Soil must hold a pH of exactly 6.3. Each plant yields 4 bulbs. " * 6,
+          "Chapter 2: Storing Glimmerroot. Bulbs are stored in cedar crates at 7 degrees Celsius for at most 21 days. " * 6]:
+    doc.new_page().insert_text((50, 72), t[:900], fontsize=9)
+up = ok(c.post("/notes", files=[("files", ("glimmerroot.pdf", doc.tobytes(), "application/pdf"))]))
+tag = up["notes_tag"]; assert up["files"]["glimmerroot.pdf"] > 0
+nc = ok(c.post("/courses", json={"source": "notes", "notes_tag": tag, "level": "beginner", "duration_days": 7, "daily_study_minutes": 30}))
+assert nc["source"] == "notes" and nc["notes_tag"] == tag
+print(nc["title"])
+nl = ok(c.get(f"/courses/{nc['id']}/lessons/m0l0"))
+assert nl["sources"] == ["glimmerroot.pdf"], nl["sources"]
+blob = (nl["explanation"] + " ".join(nl["key_takeaways"])).lower()
+assert "glimmerroot" in blob, "lesson not grounded in notes"
+print("grounded lesson:", nl["title"], "| sources:", nl["sources"])
+tp = db.get_course(cid); assert tp["source"] == "topic" and tp["notes_tag"] is None
 
 print("\nE2E PASSED")

@@ -11,8 +11,8 @@ grep -qE '^GEMINI_API_KEY=.+' .env && ! grep -q 'your-key-here' .env || { echo "
 case "${1:-app}" in
   app)  (cd "$ROOT/frontend" && { [ -d node_modules ] || npm install; } && npm run dev) &
         trap 'kill 0' EXIT INT TERM
-        .venv/bin/uvicorn api:app --reload --port 8000 ;;
-  api)  exec .venv/bin/uvicorn api:app --reload --port 8000 ;;
+        .venv/bin/uvicorn api:app --reload --port 8000 --no-access-log ;;
+  api)  exec .venv/bin/uvicorn api:app --reload --port 8000 --no-access-log ;;
   web)  cd "$ROOT/frontend" && { [ -d node_modules ] || npm install; } && exec npm run dev ;;
   adk)  exec .venv/bin/adk web . ;;
   test) exec .venv/bin/python -m pytest -q ;;

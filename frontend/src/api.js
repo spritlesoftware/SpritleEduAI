@@ -24,6 +24,7 @@ export const api = {
   video: (id, k, lang) => req(`/courses/${id}/lessons/${k}/video?lang=${lang}`, { method: "POST" }),
   review: (id, lang) => req(`/courses/${id}/review?lang=${lang}`),
   tutor: (course_id, key, lang, text, audio) => req("/tutor", form({ course_id, key, lang, text, audio })),
+  chat: (id, k) => req(`/courses/${id}/chat?key=${k}`),
   health: () => req("/health"),
   tts: async (text, lang) => URL.createObjectURL(await (await req("/tts", form({ text, lang }))).blob()),
   mediaUrl: (p) => BASE + p,

@@ -11,6 +11,7 @@ def conn():
     CREATE TABLE IF NOT EXISTS done(course_id INT, key TEXT, ts REAL, PRIMARY KEY(course_id,key));
     CREATE TABLE IF NOT EXISTS attempts(id INTEGER PRIMARY KEY, course_id INT, key TEXT, score REAL, missed TEXT, ts REAL);
     CREATE TABLE IF NOT EXISTS concepts(course_id INT, concept TEXT, right INT DEFAULT 0, total INT DEFAULT 0, PRIMARY KEY(course_id,concept));
+    CREATE TABLE IF NOT EXISTS chat(id INTEGER PRIMARY KEY, course_id INT, key TEXT, role TEXT, text TEXT, via TEXT, ts REAL);
     CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
     """)
     return c
@@ -69,3 +70,16 @@ def kv_set(k, v):
 def kv_get(k, default=None):
     r = conn().execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
     return json.loads(r["v"]) if r else default
+
+
+def add_chat(cid, key, role, text, via="text"):
+    with conn() as c:
+        c.execute("INSERT INTO chat(course_id,key,role,text,via,ts) VALUES(?,?,?,?,?,?)", (cid, key, role, text, via, time.time()))
+
+
+def get_chat(cid, key=None, limit=200):
+    q, a = "SELECT key,role,text,via,ts FROM chat WHERE course_id=?", [cid]
+    if key:
+        q += " AND key=?"; a.append(key)
+    rows = conn().execute(q + " ORDER BY id DESC LIMIT ?", a + [limit]).fetchall()
+    return [dict(r) for r in reversed(rows)]

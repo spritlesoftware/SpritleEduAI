@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import Markdown from "react-markdown";
 import { api } from "../api.js";
@@ -7,13 +7,17 @@ import { TutorPanel } from "./Tutor.jsx";
 
 function Video({ id, k, lang }) {
   const [v, setV] = useState(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
   const [err, setErr] = useState(null);
+  const [t, setT] = useState(0);
   const build = async () => {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setT(0);
     try { setV(await api.video(id, k, lang)); } catch (e) { setErr(e.message); }
     setBusy(false);
   };
+  useEffect(() => { build(); }, [id, k, lang]);  // start rendering as soon as the lesson opens; cached on the server after the first time
+  useEffect(() => { if (!busy) return; const i = setInterval(() => setT((x) => x + 1), 1000); return () => clearInterval(i); }, [busy]);
+  const stage = ["Writing slides", "Recording narration", "Syncing captions", "Assembling video"][Math.min(3, Math.floor(t / 12))];
   return (
     <section className="rounded-xl bg-navy p-4 text-white">
       {v ? (
@@ -21,10 +25,15 @@ function Video({ id, k, lang }) {
           <track default kind="captions" src={api.mediaUrl(v.captions)} />
         </video>
       ) : (
-        <div className="py-10 text-center">
-          <button className="btn" onClick={build} disabled={busy}>
-            {busy ? <><Icon n="progress_activity" className="animate-spin" />Rendering narrated video (~1 min)…</> : <><Icon n="play_arrow" />Generate lesson video</>}
-          </button>
+        <div className="py-12 text-center">
+          {busy ? (
+            <>
+              <Icon n="movie" className="!text-5xl text-primary-fixed animate-pulse" />
+              <div className="font-bold mt-2">Your narrated lesson video is rendering…</div>
+              <div className="text-sm text-slate-300 mt-1">{stage} · {t}s · read on, it will appear here</div>
+              <div className="h-1.5 w-64 max-w-full mx-auto rounded-full bg-white/15 mt-4 overflow-hidden"><div className="h-full bg-primary-fixed transition-all duration-1000" style={{ width: `${Math.min(95, Math.round(100 * (1 - Math.exp(-t / 40))))}%` }} /></div>
+            </>
+          ) : <button className="btn" onClick={build}><Icon n="refresh" />Retry rendering video</button>}
         </div>
       )}
       {err && <div className="mt-3"><ErrorBox error={err} /></div>}
@@ -36,19 +45,20 @@ function Slides({ slides }) {
   const [i, setI] = useState(0);
   const s = slides[i];
   return (
-    <section className="card">
-      <div className="flex justify-between items-center mb-3">
-        <h3 className="font-bold">Slides</h3>
+    <section className="card !p-8 min-h-[30rem] flex flex-col">
+      <div className="flex justify-between items-center mb-5">
+        <h3 className="font-bold text-lg">Slides</h3>
         <div className="flex items-center gap-2 text-sm text-muted">
           <button className="chip" disabled={i === 0} onClick={() => setI(i - 1)}><Icon n="chevron_left" /></button>
           {i + 1} / {slides.length}
           <button className="chip" disabled={i === slides.length - 1} onClick={() => setI(i + 1)}><Icon n="chevron_right" /></button>
         </div>
       </div>
-      <h4 className="font-semibold text-lg">{s.title}</h4>
-      <ul className="list-disc pl-6 mt-2 space-y-1">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>
-      {s.code && <pre className="mt-3 bg-navy text-slate-100 rounded-lg p-4 overflow-x-auto text-sm">{s.code}</pre>}
-      <p className="mt-3 text-sm text-muted italic">“{s.narration}”</p>
+      <h4 className="font-bold text-2xl">{s.title}</h4>
+      <ul className="list-disc pl-7 mt-4 space-y-2.5 text-lg leading-relaxed">{s.bullets.map((b) => <li key={b}>{b}</li>)}</ul>
+      {s.detail && <div className="mt-5 rounded-lg bg-primary-fixed/40 border border-primary-fixed p-4 text-base leading-relaxed"><div className="eyebrow mb-1">In depth</div>{s.detail}</div>}
+      {s.code && <pre className="mt-5 bg-navy text-slate-100 rounded-lg p-5 overflow-x-auto text-base leading-relaxed">{s.code}</pre>}
+      <p className="mt-auto pt-6 text-base text-muted italic">“{s.narration}”</p>
     </section>
   );
 }
@@ -105,6 +115,17 @@ function Quiz({ id, k, quiz, lang, onPassed }) {
   );
 }
 
+function QuizGate({ children }) {
+  const [open, setOpen] = useState(false);
+  if (open) return children;
+  return (
+    <section className="card text-center py-8">
+      <p className="text-muted mb-3">Finished reading and watching? Test yourself when you're ready.</p>
+      <button className="btn" onClick={() => setOpen(true)}><Icon n="quiz" />I'm ready — take the quiz</button>
+    </section>
+  );
+}
+
 export default function Lesson() {
   const { id, k } = useParams();
   const [lang] = useLang();
@@ -119,28 +140,28 @@ export default function Lesson() {
   const prev = keys[i - 1], next = keys[i + 1];
   const complete = async () => { await api.complete(id, k); setMarked(true); };
   return (
-    <div className="grid xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-2 space-y-6 min-w-0">
+    <div className="grid xl:grid-cols-[minmax(0,1fr)_28rem] gap-6">
+      <div className="space-y-6 min-w-0">
         <div>
           <Link to={`/courses/${id}`} className="eyebrow">{course.title}</Link>
           <h1 className="text-3xl font-extrabold tracking-tight mt-1">{L.title}</h1>
         </div>
         {L.slides && <Video id={id} k={k} lang={lang} />}
+        {L.slides && <Slides slides={L.slides} />}
         <section className="card prose-lite"><Markdown>{L.explanation}</Markdown></section>
-        {L.key_takeaways && (
-          <section className="card">
-            <h3 className="font-bold mb-2 flex items-center gap-2"><Icon n="lightbulb" className="text-amber" />Key takeaways</h3>
-            <ul className="list-disc pl-6 space-y-1">{L.key_takeaways.map((t) => <li key={t}>{t}</li>)}</ul>
-          </section>
-        )}
         {L.code_example && (
           <section className="rounded-xl bg-navy text-slate-100 p-4">
             <div className="text-xs text-slate-400 mb-2">{L.code_language}</div>
             <pre className="overflow-x-auto text-sm">{L.code_example}</pre>
           </section>
         )}
-        {L.slides && <Slides slides={L.slides} />}
-        <Quiz key={`${k}${lang}`} id={id} k={k} quiz={L.quiz} lang={lang} onPassed={() => setMarked(true)} />
+        {L.key_takeaways && (
+          <section className="card">
+            <h3 className="font-bold mb-2 flex items-center gap-2"><Icon n="lightbulb" className="text-amber" />Key takeaways</h3>
+            <ul className="list-disc pl-6 space-y-1">{L.key_takeaways.map((t) => <li key={t}>{t}</li>)}</ul>
+          </section>
+        )}
+        <QuizGate key={`${k}${lang}`}><Quiz id={id} k={k} quiz={L.quiz} lang={lang} onPassed={() => setMarked(true)} /></QuizGate>
         <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4">
           {prev && <Link className="btn btn-ghost" to={`/courses/${id}/lessons/${prev}`}><Icon n="arrow_back" />{idx[prev].title}</Link>}
           <button className="btn btn-ghost mx-auto" disabled={marked || course.done.includes(k)} onClick={complete}>

@@ -1,6 +1,9 @@
 import os, re, subprocess, tempfile, time
 from PIL import Image, ImageDraw, ImageFont
 from gtts import gTTS
+from .log import get
+
+log = get("media")
 
 OUT = os.path.join(os.path.dirname(__file__), "..", "data", "videos")
 FONTS = {"en": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "ta": "/usr/share/fonts/truetype/noto/NotoSansTamilUI-Regular.ttf"}
@@ -28,12 +31,19 @@ def render_slide(slide, path, lang="en", n=None, total=None):
     for line in _wrap(d, slide["title"], f(46), W - 120)[:2]:
         d.text((60, y), line, font=f(46), fill="#e0e7ff"); y += 60
     y += 15
-    for b in slide.get("bullets", [])[:5]:
-        lines = _wrap(d, b, f(30), W - 160)
-        d.text((60, y), "•", font=f(30), fill="#818cf8")
-        for line in lines[:2]:
-            d.text((100, y), line, font=f(30), fill="#f1f5f9"); y += 40
-        y += 12
+    bullets = slide.get("bullets", [])[:6]
+    code_h = (30 * min(8, len(slide["code"].splitlines())) + 50) if slide.get("code") else 0
+    avail = H - y - code_h - 40
+    for size in (30, 26, 23, 20, 18):  # shrink text until all bullets fit above the code block
+        step = int(size * 1.3)
+        wrapped = [_wrap(d, b, f(size), W - 160) for b in bullets]
+        if sum(len(w) * step + 10 for w in wrapped) <= avail:
+            break
+    for w in wrapped:
+        d.text((60, y), "•", font=f(size), fill="#818cf8")
+        for line in w:
+            d.text((100, y), line, font=f(size), fill="#f1f5f9"); y += step
+        y += 10
     if slide.get("code"):
         code = slide["code"].splitlines()[:8]
         top = max(y + 10, H - 40 - 30 * len(code) - 30)
@@ -60,6 +70,8 @@ def build_video(lesson, name, lang="en", clip=None):
     if os.path.exists(mp4) and os.path.exists(vtt):
         return mp4, vtt
     slides = lesson["slides"]
+    t0 = time.time()
+    log.info("build_video %s lang=%s slides=%d clip=%s", name, lang, len(slides), bool(clip))
     with tempfile.TemporaryDirectory() as tmp:
         segs, cues, t = [], ["WEBVTT\n"], 0.0
         if clip:
@@ -75,6 +87,7 @@ def build_video(lesson, name, lang="en", clip=None):
             subprocess.run(["ffmpeg", "-y", "-loop", "1", "-i", png, "-i", mp3, "-c:v", "libx264", "-tune", "stillimage", "-c:a", "aac",
                             "-ar", "24000", "-ac", "1", "-pix_fmt", "yuv420p", "-r", "25", "-shortest", seg], check=True, capture_output=True)
             dur = _dur(seg)
+            log.info("  slide %d/%d rendered+narrated+encoded (%.1fs of video)", i, len(slides), dur)
             sents = [x for x in re.split(r"(?<=[.!?।])\s+", s["narration"]) if x] or [s["narration"]]
             total = sum(map(len, sents)); at = t
             for x in sents:  # captions timed proportionally to sentence length
@@ -85,6 +98,7 @@ def build_video(lesson, name, lang="en", clip=None):
         open(lst, "w").write("".join(f"file '{p}'\n" for p in segs))
         subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c", "copy", mp4], check=True, capture_output=True)
         open(vtt, "w").write("\n".join(cues))
+    log.info("build_video done %s %.1fs elapsed, %d KB", name, time.time() - t0, os.path.getsize(mp4) // 1024)
     return mp4, vtt
 
 
@@ -101,6 +115,7 @@ def generate_clip(prompt, dest):
     if not model:
         raise RuntimeError("Set GEMINI_VIDEO_MODEL in .env to a currently available Gemini video model.")
     c = client()
+    log.info("generate_clip model=%s prompt=%.80r", model, prompt)
     op = c.models.generate_videos(model=model, prompt=prompt)
     while not op.done:
         time.sleep(10); op = c.operations.get(op)
