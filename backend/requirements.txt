@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+python-multipart
+google-genai
+google-adk
+python-dotenv
+pillow
+gTTS
+pymupdf
+chromadb
+pytest
+httpx

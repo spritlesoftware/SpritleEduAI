@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body { @apply bg-surface text-on-surface font-sans; }
+.ms { font-family: "Material Symbols Outlined"; font-size: 20px; line-height: 1; display: inline-block; vertical-align: middle; }
+.eyebrow { @apply text-xs font-bold uppercase tracking-widest text-primary-container; }
+.card { @apply bg-white border border-border rounded-xl p-6 shadow-sm; }
+.btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold bg-primary-container text-white hover:bg-primary disabled:opacity-50 transition; }
+.btn-ghost { @apply bg-white text-on-surface border border-border hover:bg-subtle; }
+.chip { @apply rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-muted hover:bg-subtle; }
+.chip-on { @apply bg-primary-fixed border-primary-container text-primary; }
+.prose-lite p { @apply mb-3 leading-relaxed; }
+.prose-lite ul { @apply list-disc pl-6 mb-3; }
+.prose-lite pre { @apply bg-navy text-slate-100 rounded-lg p-4 overflow-x-auto text-sm mb-3; }
+.prose-lite code { @apply font-mono text-sm; }
+.prose-lite h1,.prose-lite h2,.prose-lite h3 { @apply font-bold mt-4 mb-2; }

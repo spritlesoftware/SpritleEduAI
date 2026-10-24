@@ -1,0 +1,8 @@
+backend/.env
+pip.log
+server.log
+frontend/node_modules
+backend/.venv
+backend/__pycache__
+backend/edupilot/__pycache__
+backend/data/videos
